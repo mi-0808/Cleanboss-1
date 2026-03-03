@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>クリーンウェアチェック</title>
+  <style>
+    :root{
+      --bg:#0b1020;
+      --card:#121a33;
+      --text:#e9ecf5;
+      --muted:#aab2d5;
+      --ok:#2dd4bf;
+      --ng:#fb7185;
+      --warn:#fbbf24;
+      --line:rgba(255,255,255,.12);
+      --btn:#1f2a55;
+    }
+    *{box-sizing:border-box;}
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+      background: radial-gradient(1200px 600px at 30% 10%, #1b2a6b 0%, transparent 60%),
+                  radial-gradient(900px 500px at 80% 20%, #1b6b5e 0%, transparent 55%),
+                  var(--bg);
+      color:var(--text);
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:20px;
+    }
+    .app{
+      width:min(980px, 100%);
+      display:grid;
+      grid-template-columns: 1.25fr .75fr;
+      gap:16px;
+    }
+    .card{
+      background: rgba(18,26,51,.92);
+      border:1px solid var(--line);
+      border-radius:18px;
+      box-shadow: 0 12px 40px rgba(0,0,0,.35);
+      overflow:hidden;
+    }
+    .header{
+      padding:16px 18px;
+      border-bottom:1px solid var(--line);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .title{
+      font-size:18px;
+      font-weight:700;
+      letter-spacing:.02em;
+    }
+    .badge{
+      font-size:12px;
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid var(--line);
+      color:var(--muted);
+      background: rgba(255,255,255,.04);
+      white-space:nowrap;
+    }
+    .main{
+      padding:16px;
+      display:grid;
+      gap:14px;
+    }
+    .video{
+      border:1px dashed rgba(255,255,255,.25);
+      border-radius:16px;
+      aspect-ratio: 16 / 10;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:var(--muted);
+      background: rgba(0,0,0,.18);
+      position:relative;
+      overflow:hidden;
+    }
+    .video .hint{
+      position:absolute;
+      bottom:10px;
+      left:10px;
+      right:10px;
+      font-size:12px;
+      background: rgba(0,0,0,.35);
+      border:1px solid rgba(255,255,255,.12);
+      padding:10px 12px;
+      border-radius:12px;
+    }
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+    .check{
+      padding:12px 12px;
+      border:1px solid var(--line);
+      border-radius:14px;
+      background: rgba(255,255,255,.03);
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+    }
+    .dot{
+      width:10px;
+      height:10px;
+      border-radius:50%;
+      margin-top:4px;
+      background: var(--warn);
+      box-shadow: 0 0 0 4px rgba(251,191,36,.12);
+      flex:0 0 auto;
+    }
+    .check b{display:block; font-size:13px; margin-bottom:4px;}
+    .check span{font-size:12px; color:var(--muted); line-height:1.4;}
+    .actions{
+      display:flex;
+      gap:10px;
+    }
+    button{
+      appearance:none;
+      border:1px solid var(--line);
+      background: var(--btn);
+      color:var(--text);
+      border-radius:14px;
+      padding:12px 14px;
+      font-weight:700;
+      cursor:pointer;
+      width:100%;
+    }
+    button.primary{
+      background: linear-gradient(135deg, rgba(45,212,191,.25), rgba(27, 99, 87, .25));
+      border-color: rgba(45,212,191,.35);
+    }
+    button.danger{
+      background: linear-gradient(135deg, rgba(251,113,133,.22), rgba(122, 20, 41, .25));
+      border-color: rgba(251,113,133,.35);
+    }
+    .side{
+      padding:16px;
+      display:grid;
+      gap:12px;
+    }
+    .result{
+      border-radius:16px;
+      border:1px solid var(--line);
+      padding:14px;
+      background: rgba(255,255,255,.03);
+    }
+    .status{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      margin-bottom:10px;
+    }
+    .pill{
+      padding:6px 10px;
+      border-radius:999px;
+      font-weight:800;
+      font-size:12px;
+      border:1px solid var(--line);
+    }
+    .pill.ok{ color: var(--ok); border-color: rgba(45,212,191,.35); background: rgba(45,212,191,.10);}
+    .pill.ng{ color: var(--ng); border-color: rgba(251,113,133,.35); background: rgba(251,113,133,.10);}
+    ul{
+      margin:8px 0 0 18px;
+      padding:0;
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.55;
+    }
+    .footerNote{
+      font-size:12px;
+      color:var(--muted);
+      border-top:1px solid var(--line);
+      padding-top:12px;
+      margin-top:6px;
+    }
+    @media (max-width: 880px){
+      .app{ grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- 作業者用：チェック画面 -->
+    <section class="card">
+      <div class="header">
+        <div class="title">クリーンウェア着用チェック</div>
+        <div class="badge">作業者画面 / 1画面完結</div>
+      </div>
+      <div class="main">
+        <div class="video">
+          カメラ映像（プレビュー）
+          <div class="hint">枠内に全身（もしくは上半身）を収めて、正面を向いてください</div>
+        </div>
+
+        <div class="grid">
+          <div class="check">
+            <div class="dot"></div>
+            <div>
+              <b>髪の毛（頭巾内）</b>
+              <span>はみ出しがないかを確認</span>
+            </div>
+          </div>
+          <div class="check">
+            <div class="dot"></div>
+            <div>
+              <b>チャック</b>
+              <span>上まで締まっているかを確認</span>
+            </div>
+          </div>
+          <div class="check">
+            <div class="dot"></div>
+            <div>
+              <b>ボタン</b>
+              <span>留め忘れがないかを確認</span>
+            </div>
+          </div>
+          <div class="check">
+            <div class="dot"></div>
+            <div>
+              <b>手袋の隙間</b>
+              <span>袖と手袋の境界に露出がないか</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="primary">チェック開始</button>
+          <button>撮り直し</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 作業者用：結果パネル（右側） -->
+    <aside class="card">
+      <div class="header">
+        <div class="title">判定結果</div>
+        <div class="badge">表示＋警告</div>
+      </div>
+      <div class="side">
+        <div class="result">
+          <div class="status">
+            <span class="pill ng">NG</span>
+            <b>不備があります。修正して再チェックしてください。</b>
+          </div>
+          <ul>
+            <li>髪の毛：頭巾の外に露出の可能性</li>
+            <li>手袋：袖との間に隙間の可能性</li>
+          </ul>
+          <div class="footerNote">
+            ※警告音を鳴らす / 点滅表示を入れる（実装でON/OFF可能）
+          </div>
+        </div>
+
+        <button class="danger">警告（音）テスト</button>
+        <button>管理画面へ（Step2で追加）</button>
+      </div>
+    </aside>
+  </div>
+</body>
+</html>

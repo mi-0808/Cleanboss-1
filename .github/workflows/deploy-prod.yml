@@ -1,0 +1,145 @@
+name: CD - Deploy Prod
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-1
+  INFRA_DIR: infra
+  APP_DIST_DIR: out
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  approval:
+    name: Manual Approval
+    runs-on: ubuntu-latest
+    environment: prod-approval
+    steps:
+      - name: Approval gate message
+        run: echo "Waiting for production approval for tag ${{ github.ref_name }}"
+
+  deploy-infra:
+    name: Deploy Infrastructure (Prod)
+    needs: approval
+    runs-on: ubuntu-latest
+    environment: prod
+    outputs:
+      app_bucket: ${{ steps.outputs.app_bucket }}
+      distribution_id: ${{ steps.outputs.distribution_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_PROD }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install dependencies
+        working-directory: ${{ env.INFRA_DIR }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          npm install -g aws-cdk
+
+      - name: CDK Synth (prod)
+        working-directory: ${{ env.INFRA_DIR }}
+        run: cdk synth -c env=prd
+
+      - name: CDK Deploy (prod)
+        working-directory: ${{ env.INFRA_DIR }}
+        run: cdk deploy --all --require-approval never -c env=prd
+
+      - name: Get stack outputs
+        id: outputs
+        run: |
+          app_bucket=$(aws cloudformation describe-stacks --stack-name CleanbossStorage-prd --query 'Stacks[0].Outputs[?OutputKey==`AppBucketName`].OutputValue' --output text 2>/dev/null || true)
+          distribution_id=$(aws cloudformation describe-stacks --stack-name CleanbossStorage-prd --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionId`].OutputValue' --output text 2>/dev/null || true)
+          [ "$app_bucket" = "None" ] && app_bucket=""
+          [ "$distribution_id" = "None" ] && distribution_id=""
+          echo "app_bucket=$app_bucket" >> "$GITHUB_OUTPUT"
+          echo "distribution_id=$distribution_id" >> "$GITHUB_OUTPUT"
+
+  deploy-app:
+    name: Deploy Application (Prod)
+    needs: deploy-infra
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Build static app
+        run: |
+          pnpm install --frozen-lockfile=false
+          pnpm build
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_PROD }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Validate deploy target
+        run: |
+          if [ -z "${{ needs.deploy-infra.outputs.app_bucket }}" ]; then
+            echo "App bucket output is empty. Ensure CloudFormation outputs are defined." >&2
+            exit 1
+          fi
+          if [ ! -d "${{ env.APP_DIST_DIR }}" ]; then
+            echo "Build output directory not found: ${{ env.APP_DIST_DIR }}" >&2
+            exit 1
+          fi
+
+      - name: S3 sync
+        run: |
+          aws s3 sync "${{ env.APP_DIST_DIR }}" "s3://${{ needs.deploy-infra.outputs.app_bucket }}" --delete
+
+      - name: CloudFront invalidation
+        if: ${{ needs.deploy-infra.outputs.distribution_id != '' && needs.deploy-infra.outputs.distribution_id != 'None' }}
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ needs.deploy-infra.outputs.distribution_id }}" \
+            --paths "/*"
+
+      - name: Deployment summary
+        run: |
+          {
+            echo "## Prod Deployment Summary"
+            echo "- Tag: ${{ github.ref_name }}"
+            echo "- Region: ${{ env.AWS_REGION }}"
+            echo "- Bucket: s3://${{ needs.deploy-infra.outputs.app_bucket }}"
+            echo "- Distribution: ${{ needs.deploy-infra.outputs.distribution_id || 'N/A' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
