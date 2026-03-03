@@ -1,0 +1,153 @@
+name: CD - Deploy Dev
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-1
+  INFRA_DIR: infra
+  APP_DIST_DIR: out
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: true
+
+jobs:
+  deploy-infra:
+    name: Deploy Infrastructure (Dev)
+    runs-on: ubuntu-latest
+    environment: dev
+    outputs:
+      app_bucket: ${{ steps.outputs.app_bucket }}
+      distribution_id: ${{ steps.outputs.distribution_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install dependencies
+        working-directory: ${{ env.INFRA_DIR }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          npm install -g aws-cdk
+
+      - name: CDK Synth (dev)
+        working-directory: ${{ env.INFRA_DIR }}
+        run: cdk synth -c env=dev
+
+      - name: CDK Deploy (dev)
+        working-directory: ${{ env.INFRA_DIR }}
+        run: cdk deploy --all --require-approval never -c env=dev
+
+      - name: Get stack outputs
+        id: outputs
+        run: |
+          app_bucket=$(aws cloudformation describe-stacks --stack-name CleanbossStorage-dev --query 'Stacks[0].Outputs[?OutputKey==`AppBucketName`].OutputValue' --output text 2>/dev/null || true)
+          distribution_id=$(aws cloudformation describe-stacks --stack-name CleanbossStorage-dev --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionId`].OutputValue' --output text 2>/dev/null || true)
+          [ "$app_bucket" = "None" ] && app_bucket=""
+          [ "$distribution_id" = "None" ] && distribution_id=""
+          echo "app_bucket=$app_bucket" >> "$GITHUB_OUTPUT"
+          echo "distribution_id=$distribution_id" >> "$GITHUB_OUTPUT"
+
+  deploy-app:
+    name: Deploy Application (Dev)
+    needs: deploy-infra
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Build static app
+        run: |
+          pnpm install --frozen-lockfile=false
+          pnpm build
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Validate deploy target
+        run: |
+          if [ -z "${{ needs.deploy-infra.outputs.app_bucket }}" ]; then
+            echo "App bucket output is empty. Ensure CloudFormation outputs are defined." >&2
+            exit 1
+          fi
+          if [ ! -d "${{ env.APP_DIST_DIR }}" ]; then
+            echo "Build output directory not found: ${{ env.APP_DIST_DIR }}" >&2
+            exit 1
+          fi
+
+      - name: Upload HTML (short cache)
+        run: |
+          aws s3 sync "${{ env.APP_DIST_DIR }}" "s3://${{ needs.deploy-infra.outputs.app_bucket }}" \
+            --delete --exclude "*" --include "*.html" \
+            --cache-control "public,max-age=300"
+
+      - name: Upload CSS/JS (long cache)
+        run: |
+          aws s3 sync "${{ env.APP_DIST_DIR }}" "s3://${{ needs.deploy-infra.outputs.app_bucket }}" \
+            --exclude "*" --include "*.css" --include "*.js" --include "*.mjs" \
+            --cache-control "public,max-age=31536000,immutable"
+
+      - name: Upload JSON (mid cache)
+        run: |
+          aws s3 sync "${{ env.APP_DIST_DIR }}" "s3://${{ needs.deploy-infra.outputs.app_bucket }}" \
+            --exclude "*" --include "*.json" \
+            --cache-control "public,max-age=86400"
+
+      - name: Upload remaining assets
+        run: |
+          aws s3 sync "${{ env.APP_DIST_DIR }}" "s3://${{ needs.deploy-infra.outputs.app_bucket }}" \
+            --exclude "*.html" --exclude "*.css" --exclude "*.js" --exclude "*.mjs" --exclude "*.json"
+
+      - name: CloudFront invalidation
+        if: ${{ needs.deploy-infra.outputs.distribution_id != '' && needs.deploy-infra.outputs.distribution_id != 'None' }}
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ needs.deploy-infra.outputs.distribution_id }}" \
+            --paths "/*"
+
+      - name: Deployment summary
+        run: |
+          {
+            echo "## Dev Deployment Summary"
+            echo "- Region: ${{ env.AWS_REGION }}"
+            echo "- Bucket: s3://${{ needs.deploy-infra.outputs.app_bucket }}"
+            echo "- Distribution: ${{ needs.deploy-infra.outputs.distribution_id || 'N/A' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
