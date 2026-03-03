@@ -1,80 +1,94 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { ChangeEvent, useEffect, useState } from 'react';
 
-type ApiItemResult = {
-  itemCode: string;
-  result: 'OK' | 'NG';
-  reasonCode?: string;
-  score: number;
-  threshold: number;
+type InspectResponse = {
+  ok: boolean;
+  judgement?: 'OK' | 'NG';
+  issues?: string[];
+  notes?: string;
+  message?: string;
 };
 
-type ExecuteResponse = {
-  overallResult: 'OK' | 'NG' | 'ERROR';
-  ngReasons: string[];
-  itemResults: ApiItemResult[];
-  inferenceMs: number;
-};
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-const labelMap: Record<string, string> = {
-  hair: '髪の毛',
-  neck_gap: '首元の隙間',
-  glove_gap: '手袋の隙間'
-};
-
-const actionMap: Record<string, string> = {
-  hair: '頭巾の中に髪を完全に入れてください。',
-  neck_gap: '首元の開きを閉じ、肌が見えないようにしてください。',
-  glove_gap: '手袋を深く差し込み、袖との隙間を無くしてください。'
-};
+function isMockMode() {
+  return process.env.NEXT_PUBLIC_USE_MOCK === '1';
+}
 
 export function CheckPanel() {
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<ExecuteResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
+  const [result, setResult] = useState<InspectResponse | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  function playAlertBeep() {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return;
+  useEffect(() => {
+    return () => {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
 
-    const ctx = audioContextRef.current ?? new AudioCtx();
-    audioContextRef.current = ctx;
+  function onChangeFile(event: ChangeEvent<HTMLInputElement>) {
+    const nextFile = event.target.files?.[0] ?? null;
 
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'square';
-    osc.frequency.value = 880;
-    gain.gain.value = 0.001;
+    setResult(null);
+    setErrorMessage(null);
 
-    osc.connect(gain);
-    gain.connect(ctx.destination);
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
+    }
 
-    const now = ctx.currentTime;
-    gain.gain.exponentialRampToValueAtTime(0.2, now + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+    if (!nextFile) {
+      setFile(null);
+      return;
+    }
 
-    osc.start(now);
-    osc.stop(now + 0.26);
+    if (!nextFile.type.startsWith('image/')) {
+      setFile(null);
+      setErrorMessage('画像ファイルを選択してください。');
+      return;
+    }
+
+    if (nextFile.size > MAX_FILE_SIZE) {
+      setFile(null);
+      setErrorMessage('画像サイズは10MB以下にしてください。');
+      return;
+    }
+
+    setFile(nextFile);
+    setPreviewUrl(URL.createObjectURL(nextFile));
   }
 
-  async function onCheck() {
+  async function onInspect() {
+    if (!file) return;
+
     setLoading(true);
-    setError(null);
+    setResult(null);
+    setErrorMessage(null);
 
     try {
-      const res = await fetch('/api/check/execute', { method: 'POST' });
-      if (!res.ok) throw new Error('判定APIが失敗しました');
+      const formData = new FormData();
+      formData.append('image', file);
 
-      const data = (await res.json()) as ExecuteResponse;
-      setResult(data);
+      const res = await fetch('/api/inspect', {
+        method: 'POST',
+        body: formData
+      });
 
-      if (data.overallResult === 'NG') {
-        playAlertBeep();
+      const body = (await res.json()) as InspectResponse;
+
+      if (!res.ok || !body.ok) {
+        setErrorMessage(body.message ?? '判定に失敗しました。');
+        return;
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '不明なエラー');
+
+      setResult(body);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '通信エラーが発生しました。');
     } finally {
       setLoading(false);
     }
@@ -82,66 +96,52 @@ export function CheckPanel() {
 
   return (
     <section style={{ maxWidth: 720, margin: '0 auto', padding: 24 }}>
-      <h1 style={{ fontSize: 28 }}>クリーンウェアチェック</h1>
-      <p>正面を向き、手を顔の高さまで上げて開始してください。</p>
+      <h1 style={{ fontSize: 28, marginBottom: 8 }}>クリーンウェアチェック</h1>
+      <p style={{ marginTop: 0, marginBottom: 8 }}>画像を選択して GPT 判定を実行します。</p>
+      {isMockMode() ? (
+        <p style={{ marginTop: 0, marginBottom: 16, color: '#b45309' }}>モックモードON（NEXT_PUBLIC_USE_MOCK=1）</p>
+      ) : (
+        <p style={{ marginTop: 0, marginBottom: 16 }}>モックモードOFF（既定）</p>
+      )}
 
-      <div
-        style={{
-          border: '1px dashed #94a3b8',
-          borderRadius: 12,
-          padding: 24,
-          minHeight: 180,
-          background: '#111827'
-        }}
-      >
-        カメラプレビュー（実装フェーズで接続）
+      <div style={{ marginBottom: 12 }}>
+        <input type="file" accept="image/*" onChange={onChangeFile} disabled={loading} />
       </div>
 
+      {previewUrl ? (
+        <div style={{ marginBottom: 16 }}>
+          <img
+            src={previewUrl}
+            alt="選択した画像プレビュー"
+            style={{ maxWidth: '100%', borderRadius: 8, border: '1px solid #d1d5db' }}
+          />
+        </div>
+      ) : null}
+
       <button
-        onClick={onCheck}
-        disabled={loading}
-        style={{ marginTop: 16, padding: '12px 20px', borderRadius: 10, border: 0, fontWeight: 700 }}
+        type="button"
+        onClick={onInspect}
+        disabled={!file || loading}
+        style={{ padding: '10px 16px', borderRadius: 8, border: '1px solid #9ca3af' }}
       >
-        {loading ? '判定中...' : 'チェック開始'}
+        {loading ? '判定中...' : '判定する'}
       </button>
 
-      {error ? <p style={{ color: '#fb7185' }}>{error}</p> : null}
-
       {result ? (
-        <div
-          style={{
-            marginTop: 20,
-            padding: 16,
-            borderRadius: 12,
-            background: result.overallResult === 'NG' ? '#3f1d1d' : '#1f2937'
-          }}
-        >
-          <h2>判定結果: {result.overallResult === 'OK' ? '入室OK' : 'NG'}</h2>
-          <p>推論時間: {result.inferenceMs} ms</p>
-
-          <ul>
-            {result.itemResults.map((item) => (
-              <li key={item.itemCode}>
-                {labelMap[item.itemCode] ?? item.itemCode}: {item.result}
-                {item.reasonCode ? `（${item.reasonCode}）` : ''}
-              </li>
-            ))}
-          </ul>
-
-          {result.overallResult === 'NG' ? (
-            <>
-              <h3 style={{ marginBottom: 6 }}>修正のための行動</h3>
-              <ul style={{ marginTop: 0 }}>
-                {result.itemResults
-                  .filter((item) => item.result === 'NG')
-                  .map((item) => (
-                    <li key={`action-${item.itemCode}`}>{actionMap[item.itemCode] ?? '状態を修正してください。'}</li>
-                  ))}
-              </ul>
-            </>
+        <div style={{ marginTop: 16, padding: 12, border: '1px solid #86efac', borderRadius: 8 }}>
+          <strong>判定: {result.judgement}</strong>
+          <p style={{ margin: '8px 0 0' }}>{result.notes}</p>
+          {result.issues && result.issues.length > 0 ? (
+            <ul style={{ marginBottom: 0 }}>
+              {result.issues.map((issue, idx) => (
+                <li key={`${idx}-${issue}`}>{issue}</li>
+              ))}
+            </ul>
           ) : null}
         </div>
       ) : null}
+
+      {errorMessage ? <p style={{ marginTop: 16, color: '#dc2626' }}>{errorMessage}</p> : null}
     </section>
   );
 }
