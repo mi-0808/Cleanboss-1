@@ -1,0 +1,87 @@
+name: CDK Diff on PR
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'infra/**'
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  cdk-diff:
+    name: CDK Diff
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ap-northeast-1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install dependencies
+        working-directory: infra
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          npm install -g aws-cdk
+
+      - name: Run cdk diff
+        working-directory: infra
+        run: |
+          set +e
+          cdk diff --all -c env=dev > ../cdk-diff.txt 2>&1
+          rc=$?
+          echo "exit_code=$rc" >> "$GITHUB_ENV"
+          if [ "$rc" -eq 0 ]; then
+            echo "diff_status=no_changes" >> "$GITHUB_ENV"
+          elif [ "$rc" -eq 1 ]; then
+            echo "diff_status=has_changes" >> "$GITHUB_ENV"
+          else
+            echo "diff_status=error" >> "$GITHUB_ENV"
+          fi
+          set -e
+
+      - name: Upsert PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- cdk-diff-comment -->';
+            const diff = fs.readFileSync('cdk-diff.txt', 'utf8');
+            const status = process.env.diff_status || 'unknown';
+            const body = `${marker}\n## CDK Diff (dev)\n- Status: ${status}\n\n\`\`\`diff\n${diff.slice(0, 60000)}\n\`\`\``;
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const previous = comments.data.find(c => c.body && c.body.includes(marker));
+            if (previous) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: previous.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      - name: Fail when cdk diff errored
+        if: env.diff_status == 'error'
+        run: |
+          echo "CDK diff command errored. See PR comment." >&2
+          exit 1
