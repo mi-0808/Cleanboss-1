@@ -97,11 +97,11 @@ export default function CameraPage() {
   return (
     <main style={{ maxWidth: 880, margin: '0 auto', padding: 20 }}>
       <h1 style={{ fontSize: 30, marginBottom: 10 }}>画像アップロード判定</h1>
-      <p style={{ marginTop: 0 }}>画像ファイルを選択して GPT 判定を実行します。</p>
+      <p style={{ marginTop: 0 }}>画像ファイルを選択して 着こなしミス検知を実行します。</p>
       {isMockMode() ? (
-        <p style={{ marginTop: 0, marginBottom: 16, color: '#b45309' }}>モックモードON（NEXT_PUBLIC_USE_MOCK=1）</p>
+        <p style={{ marginTop: 0, marginBottom: 16, color: '#b45309' }}>）</p>
       ) : (
-        <p style={{ marginTop: 0, marginBottom: 16 }}>モックモードOFF（既定）</p>
+        <p style={{ marginTop: 0, marginBottom: 16 }}></p>
       )}
 
       <section style={{ display: 'grid', gap: 16, marginTop: 12 }}>
