@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { judgeOverall } from '../../lib/rules/judge';
+import type { ItemResult } from '../../lib/rules/types';
 
-const okItems = [
+const okItems: ItemResult[] = [
   { itemCode: 'hair', score: 0.9, threshold: 0.7, result: 'OK' as const },
-  { itemCode: 'zipper', score: 0.9, threshold: 0.7, result: 'OK' as const },
-  { itemCode: 'buttons', score: 0.9, threshold: 0.7, result: 'OK' as const },
+  { itemCode: 'neck_gap', score: 0.9, threshold: 0.7, result: 'OK' as const },
   { itemCode: 'glove_gap', score: 0.9, threshold: 0.7, result: 'OK' as const }
 ];
 
@@ -21,17 +21,17 @@ describe('judgeOverall', () => {
     const result = judgeOverall([
       ...okItems.slice(0, 1),
       {
-        itemCode: 'zipper',
+        itemCode: 'neck_gap',
         score: 0.2,
         threshold: 0.7,
         result: 'NG' as const,
-        reasonCode: 'zipper_LOW_CONFIDENCE'
+        reasonCode: '首元に隙間（肌の露出）があります'
       },
-      ...okItems.slice(2)
+      ...okItems.slice(2),
     ]);
 
     expect(result.overallResult).toBe('NG');
-    expect(result.ngReasons).toContain('zipper_LOW_CONFIDENCE');
+    expect(result.ngReasons).toContain('首元に隙間（肌の露出）があります');
   });
 
   it('APP-FE-006: 項目ゼロはERROR', () => {

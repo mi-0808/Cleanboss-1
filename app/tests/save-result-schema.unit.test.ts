@@ -8,8 +8,7 @@ const validPayload = {
   retryCount: 0,
   itemResults: [
     { itemCode: 'hair', score: 1, threshold: 0.7, result: 'OK' as const },
-    { itemCode: 'zipper', score: 1, threshold: 0.7, result: 'OK' as const },
-    { itemCode: 'buttons', score: 1, threshold: 0.7, result: 'OK' as const },
+    { itemCode: 'neck_gap', score: 1, threshold: 0.7, result: 'OK' as const },
     { itemCode: 'glove_gap', score: 1, threshold: 0.7, result: 'OK' as const }
   ]
 };

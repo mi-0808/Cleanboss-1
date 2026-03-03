@@ -1,10 +1,10 @@
-export type ItemCode = 'hair' | 'zipper' | 'buttons' | 'glove_gap';
+export type ItemCode = 'hair' | 'neck_gap' | 'glove_gap';
 
 export type ItemResult = {
   itemCode: ItemCode;
   score: number;
   threshold: number;
-  result: 'OK' | 'NG' | 'UNKNOWN';
+  result: 'OK' | 'NG';
   reasonCode?: string;
 };
 
