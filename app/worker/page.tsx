@@ -1,5 +1,5 @@
-import { CheckPanel } from '@/components/worker/check-panel';
+import { redirect } from 'next/navigation';
 
 export default function WorkerPage() {
-  return <CheckPanel />;
+  redirect('/check');
 }
