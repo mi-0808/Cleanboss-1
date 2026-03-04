@@ -77,11 +77,31 @@ function toApiResult(overall: 'ok' | 'ng', issues: string[], summary: string): I
 }
 
 async function inferWithRetry(client: OpenAI, imageDataUrl: string) {
-  const prompt = [
+  const systemPrompt = [
     'あなたはクリーンウェア着用チェック担当です。',
-    '画像を見て、着用ミスがあれば具体的に列挙してください。',
-    '問題がなければ issues を空配列にし、summary に「問題なし」と記載してください。',
-    '必ずJSONのみを返してください。'
+    '画像から着用ミスを判定し、現場で再実施できる具体的な指摘を返してください。',
+    '不確実な推測は避け、画像で確認できる事実のみを根拠にしてください。'
+  ].join('\n');
+
+  const userPrompt = [
+    '要件定義に基づき、次の4項目のみを判定対象にしてください。',
+    '1) 髪の毛が頭巾（フード）に完全に入っていない',
+    '2) チャックが上まで締まっていない',
+    '3) ボタンの留め忘れがある',
+    '4) 手袋装着に隙間がある（袖と手袋の境界の露出など）',
+    '',
+    '判定ルール:',
+    '- 4項目のうち1つでも明確な不備があれば overall は "ng"。',
+    '- 明確な不備が無ければ overall は "ok"。',
+    '- 不明瞭な場合は不備として断定しない。',
+    '',
+    '出力ルール:',
+    '- issues は不備ごとに列挙（重複なし）。',
+    '- message は何が問題かを短く具体的に記載。',
+    '- suggestion はその場で直せる是正行動を記載。',
+    '- overall が "ok" のとき issues は空配列、summary に「問題なし」を含める。',
+    '',
+    '必ずJSONのみを返し、json_schemaに完全準拠してください。'
   ].join('\n');
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -89,9 +109,13 @@ async function inferWithRetry(client: OpenAI, imageDataUrl: string) {
       model: process.env.OPENAI_VISION_MODEL ?? 'gpt-4.1-mini',
       input: [
         {
+          role: 'system',
+          content: [{ type: 'input_text', text: systemPrompt }]
+        },
+        {
           role: 'user',
           content: [
-            { type: 'input_text', text: prompt },
+            { type: 'input_text', text: userPrompt },
             { type: 'input_image', image_url: imageDataUrl, detail: 'auto' }
           ]
         }
