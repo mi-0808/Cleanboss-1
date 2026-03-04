@@ -1,6 +1,10 @@
 'use client';
 
 import { ChangeEvent, useEffect, useState } from 'react';
+import { Alert } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 
 type InspectResponse = {
   ok: boolean;
@@ -22,6 +26,7 @@ export function CheckPanel() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<InspectResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -36,6 +41,7 @@ export function CheckPanel() {
 
     setResult(null);
     setErrorMessage(null);
+    setSuccessMessage(null);
 
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
@@ -69,6 +75,7 @@ export function CheckPanel() {
     setLoading(true);
     setResult(null);
     setErrorMessage(null);
+    setSuccessMessage(null);
 
     try {
       const formData = new FormData();
@@ -87,6 +94,7 @@ export function CheckPanel() {
       }
 
       setResult(body);
+      setSuccessMessage('判定が完了しました。結果を確認してください。');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '通信エラーが発生しました。');
     } finally {
@@ -95,53 +103,83 @@ export function CheckPanel() {
   }
 
   return (
-    <section style={{ maxWidth: 720, margin: '0 auto', padding: 24 }}>
-      <h1 style={{ fontSize: 28, marginBottom: 8 }}>クリーンウェアチェック</h1>
-      <p style={{ marginTop: 0, marginBottom: 8 }}>画像を選択して GPT 判定を実行します。</p>
-      {isMockMode() ? (
-        <p style={{ marginTop: 0, marginBottom: 16, color: '#b45309' }}>モックモードON（NEXT_PUBLIC_USE_MOCK=1）</p>
-      ) : (
-        <p style={{ marginTop: 0, marginBottom: 16 }}>モックモードOFF（既定）</p>
-      )}
+    <div className="space-y-6">
+      <section>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">作業者チェック</h1>
+        <p className="mt-2 text-sm text-slate-600">画像をアップロードして、衛生ルール違反を即時判定します。</p>
+        <div className="mt-3">
+          <Badge status={isMockMode() ? 'warn' : 'info'}>
+            {isMockMode() ? 'モックモード ON' : 'モックモード OFF'}
+          </Badge>
+        </div>
+      </section>
 
-      <div style={{ marginBottom: 12 }}>
-        <input type="file" accept="image/*" onChange={onChangeFile} disabled={loading} />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <h2 className="text-lg font-semibold text-slate-900">画像アップロード</h2>
+            <p className="text-sm text-slate-600">対応形式: 画像ファイル / 上限10MB</p>
+          </CardHeader>
+          <CardContent>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={onChangeFile}
+              disabled={loading}
+              className="focus-ring block w-full rounded-xl border border-slate-200 bg-white p-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-cyan-500 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-cyan-400"
+            />
+
+            <Button type="button" onClick={onInspect} disabled={!file || loading} loading={loading} className="w-full">
+              {loading ? '判定中...' : '判定する'}
+            </Button>
+
+            {loading ? (
+              <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="h-3 w-3/4 animate-pulse rounded bg-slate-200" />
+                <div className="h-3 w-2/4 animate-pulse rounded bg-slate-200" />
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <h2 className="text-lg font-semibold text-slate-900">プレビュー</h2>
+            <p className="text-sm text-slate-600">選択画像を確認してから判定できます。</p>
+          </CardHeader>
+          <CardContent>
+            {previewUrl ? (
+              <img src={previewUrl} alt="選択した画像プレビュー" className="w-full rounded-xl border border-slate-200" />
+            ) : (
+              <div className="grid h-52 place-items-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
+                画像を選択するとここに表示されます
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
-      {previewUrl ? (
-        <div style={{ marginBottom: 16 }}>
-          <img
-            src={previewUrl}
-            alt="選択した画像プレビュー"
-            style={{ maxWidth: '100%', borderRadius: 8, border: '1px solid #d1d5db' }}
-          />
-        </div>
-      ) : null}
-
-      <button
-        type="button"
-        onClick={onInspect}
-        disabled={!file || loading}
-        style={{ padding: '10px 16px', borderRadius: 8, border: '1px solid #9ca3af' }}
-      >
-        {loading ? '判定中...' : '判定する'}
-      </button>
+      {successMessage ? <Alert tone="success">{successMessage}</Alert> : null}
+      {errorMessage ? <Alert tone="error">{errorMessage}</Alert> : null}
 
       {result ? (
-        <div style={{ marginTop: 16, padding: 12, border: '1px solid #86efac', borderRadius: 8 }}>
-          <strong>判定: {result.judgement}</strong>
-          <p style={{ margin: '8px 0 0' }}>{result.notes}</p>
-          {result.issues && result.issues.length > 0 ? (
-            <ul style={{ marginBottom: 0 }}>
-              {result.issues.map((issue, idx) => (
-                <li key={`${idx}-${issue}`}>{issue}</li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
+        <Card className="border-slate-300">
+          <CardHeader className="md:flex-row md:items-center md:justify-between">
+            <h2 className="text-lg font-semibold text-slate-900">判定結果</h2>
+            <Badge status={result.judgement === 'OK' ? 'success' : 'warn'}>{result.judgement ?? '判定なし'}</Badge>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-slate-700">{result.notes ?? '補足なし'}</p>
+            {result.issues && result.issues.length > 0 ? (
+              <ul className="space-y-1 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                {result.issues.map((issue, idx) => (
+                  <li key={`${idx}-${issue}`}>・{issue}</li>
+                ))}
+              </ul>
+            ) : null}
+          </CardContent>
+        </Card>
       ) : null}
-
-      {errorMessage ? <p style={{ marginTop: 16, color: '#dc2626' }}>{errorMessage}</p> : null}
-    </section>
+    </div>
   );
 }
