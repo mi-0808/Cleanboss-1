@@ -30,6 +30,19 @@ type InspectFailure = {
   requestId?: string;
 };
 
+function jsonFailure(message: string, init?: { status?: number; requestId?: string }) {
+  const { status = 200, requestId } = init ?? {};
+
+  return NextResponse.json<InspectFailure>(
+    {
+      ok: false,
+      message,
+      requestId
+    },
+    { status }
+  );
+}
+
 function getOpenAIClient() {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -210,39 +223,26 @@ export async function POST(req: NextRequest) {
     const image = form.get('image');
 
     if (!(image instanceof File)) {
-      return NextResponse.json<InspectFailure>(
-        { ok: false, message: 'image フィールドに画像ファイルが必要です。' },
-        { status: 400 }
-      );
+      return jsonFailure('image フィールドに画像ファイルが必要です。', { status: 400 });
     }
 
     if (!image.type.startsWith('image/')) {
-      return NextResponse.json<InspectFailure>(
-        { ok: false, message: '画像ファイルのみアップロードできます。' },
-        { status: 400 }
-      );
+      return jsonFailure('画像ファイルのみアップロードできます。', { status: 400 });
     }
 
     if (!ALLOWED_MIME_TYPES.has(image.type)) {
-      return NextResponse.json<InspectFailure>(
-        {
-          ok: false,
-          message:
-            '対応形式はJPEG/PNG/GIF/WebP/HEICです。対応外形式は変換して再試行してください。'
-        },
+      return jsonFailure(
+        '対応形式はJPEG/PNG/GIF/WebP/HEICです。対応外形式は変換して再試行してください。',
         { status: 400 }
       );
     }
 
     if (image.size <= 0) {
-      return NextResponse.json<InspectFailure>({ ok: false, message: '空の画像ファイルは送信できません。' }, { status: 400 });
+      return jsonFailure('空の画像ファイルは送信できません。', { status: 400 });
     }
 
     if (image.size > MAX_SIZE) {
-      return NextResponse.json<InspectFailure>(
-        { ok: false, message: '画像サイズは10MB以下にしてください。' },
-        { status: 400 }
-      );
+      return jsonFailure('画像サイズは10MB以下にしてください。', { status: 400 });
     }
 
     const client = getOpenAIClient();
@@ -256,16 +256,13 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      return NextResponse.json<InspectFailure>(
-        { ok: false, message: 'OPENAI_API_KEY が未設定です。モックは既定で無効です。' },
-        { status: 500 }
-      );
+      return jsonFailure('OPENAI_API_KEY が未設定です。モックは既定で無効です。');
     }
 
     const arrayBuffer = await image.arrayBuffer();
     const imageBuffer = Buffer.from(arrayBuffer);
     if (imageBuffer.length === 0) {
-      return NextResponse.json<InspectFailure>({ ok: false, message: '空の画像ファイルは送信できません。' }, { status: 400 });
+      return jsonFailure('空の画像ファイルは送信できません。', { status: 400 });
     }
 
     const normalized = await normalizeForOpenAI(imageBuffer);
@@ -287,22 +284,17 @@ export async function POST(req: NextRequest) {
           ? 'HEIC画像の変換に失敗した可能性があります。iPhone設定を「互換性優先」にして再撮影するか、JPEGで再試行してください。'
           : '画像データが不正です。JPEG/PNG/GIF/WebP/HEIC の有効な画像で再試行してください。';
         return NextResponse.json<InspectFailure>(
-          {
-            ok: false,
-            message: baseMessage
-          },
+          { ok: false, message: baseMessage },
           { status: 400 }
         );
       }
 
       if (status === 429 || errorCode === 'insufficient_quota') {
-        return NextResponse.json<InspectFailure>(
+        return jsonFailure(
+          'OpenAI API の利用上限に達しました。プラン/請求情報を確認してから再試行してください。',
           {
-            ok: false,
-            message: 'OpenAI API の利用上限に達しました。プラン/請求情報を確認してから再試行してください。',
             requestId: requestId ?? undefined
-          },
-          { status: 429 }
+          }
         );
       }
 
@@ -310,15 +302,12 @@ export async function POST(req: NextRequest) {
     }
   } catch (error) {
     if (error instanceof Error && error.message === 'INVALID_IMAGE_DATA') {
-      return NextResponse.json<InspectFailure>(
-        {
-          ok: false,
-          message: '画像の読み取りに失敗しました。ファイルが壊れている可能性があります。別の画像で再試行してください。'
-        },
+      return jsonFailure(
+        '画像の読み取りに失敗しました。ファイルが壊れている可能性があります。別の画像で再試行してください。',
         { status: 400 }
       );
     }
     console.error('inspect api error', error);
-    return NextResponse.json<InspectFailure>({ ok: false, message: '画像解析に失敗しました。' }, { status: 500 });
+    return jsonFailure('画像解析に失敗しました。');
   }
 }

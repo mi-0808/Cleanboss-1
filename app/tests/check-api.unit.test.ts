@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { POST as executePost } from '../../app/api/check/execute/route';
 import { POST as resultsPost } from '../../app/api/check/results/route';
+import { POST as inspectPost } from '../../app/api/inspect/route';
 import * as inference from '../../lib/inference/mock-inference';
 
 const validPayload = {
@@ -64,5 +65,26 @@ describe('check APIs', () => {
 
     expect(res.status).toBe(400);
     expect(body.error).toBe('VALIDATION_ERROR');
+  });
+
+  it('APP-FE-011: inspect API returns app-level error without 500 when key is missing', async () => {
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.NEXT_PUBLIC_USE_MOCK;
+    delete process.env.USE_MOCK_INFERENCE;
+
+    const formData = new FormData();
+    formData.append('image', new File([new Uint8Array([1, 2, 3])], 'sample.png', { type: 'image/png' }));
+
+    const req = new Request('http://localhost/api/inspect', {
+      method: 'POST',
+      body: formData
+    });
+
+    const res = await inspectPost(req as any);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(false);
+    expect(body.message).toContain('OPENAI_API_KEY');
   });
 });
