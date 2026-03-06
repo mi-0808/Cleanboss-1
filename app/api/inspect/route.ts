@@ -289,6 +289,17 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      if (status === 401) {
+        return jsonFailure('OpenAI API キーが無効です。Vercel の環境変数 OPENAI_API_KEY を確認して再デプロイしてください。');
+      }
+
+      if (status === 403) {
+        return jsonFailure(
+          'OpenAI API へのアクセスが拒否されました。API キーの権限、利用可能なモデル、組織設定を確認してください。',
+          { requestId: requestId ?? undefined }
+        );
+      }
+
       if (status === 429 || errorCode === 'insufficient_quota') {
         return jsonFailure(
           'OpenAI API の利用上限に達しました。プラン/請求情報を確認してから再試行してください。',
@@ -296,6 +307,12 @@ export async function POST(req: NextRequest) {
             requestId: requestId ?? undefined
           }
         );
+      }
+
+      if (status !== null && status >= 500) {
+        return jsonFailure('OpenAI 側で一時的なエラーが発生しました。少し待ってから再試行してください。', {
+          requestId: requestId ?? undefined
+        });
       }
 
       throw error;
