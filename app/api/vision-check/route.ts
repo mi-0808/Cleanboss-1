@@ -10,6 +10,18 @@ const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 class InputValidationError extends Error {}
 
+function jsonError(error: string, init?: { status?: number; requestId?: string }) {
+  const { status = 200, requestId } = init ?? {};
+
+  return NextResponse.json(
+    {
+      error,
+      requestId
+    },
+    { status }
+  );
+}
+
 function extractJsonText(response: any): string | null {
   if (typeof response?.output_text === 'string' && response.output_text.length > 0) {
     return response.output_text;
@@ -90,7 +102,7 @@ export async function POST(req: NextRequest) {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: 'OPENAI_API_KEY が設定されていません' }, { status: 500 });
+      return jsonError('OPENAI_API_KEY is not configured');
     }
 
     const body = await req.json();
@@ -136,8 +148,43 @@ export async function POST(req: NextRequest) {
     const responseJson = await response.json();
 
     if (!response.ok) {
-      console.error('vision-check openai error', { status: response.status, body: responseJson });
-      return NextResponse.json({ error: `判定APIエラー (${response.status})` }, { status: response.status });
+      const requestId =
+        typeof responseJson?.error?.request_id === 'string'
+          ? responseJson.error.request_id
+          : typeof response.headers.get('x-request-id') === 'string'
+            ? response.headers.get('x-request-id')
+            : undefined;
+      const errorMessage =
+        typeof responseJson?.error?.message === 'string' ? responseJson.error.message : `判定APIエラー (${response.status})`;
+      console.error('vision-check openai error', {
+        status: response.status,
+        requestId,
+        errorMessage
+      });
+
+      if (response.status === 401) {
+        return jsonError('OpenAI API キーが無効です。Vercel の環境変数 OPENAI_API_KEY を確認して再デプロイしてください。');
+      }
+
+      if (response.status === 403) {
+        return jsonError('OpenAI API へのアクセスが拒否されました。API キーの権限、利用可能なモデル、組織設定を確認してください。', {
+          requestId
+        });
+      }
+
+      if (response.status === 429) {
+        return jsonError('OpenAI API の利用上限に達しました。プラン/請求情報を確認してから再試行してください。', {
+          requestId
+        });
+      }
+
+      if (response.status >= 500) {
+        return jsonError('OpenAI 側で一時的なエラーが発生しました。少し待ってから再試行してください。', {
+          requestId
+        });
+      }
+
+      return jsonError(errorMessage, { status: response.status, requestId });
     }
 
     const text = extractJsonText(responseJson);
@@ -148,17 +195,17 @@ export async function POST(req: NextRequest) {
     const parsed = visionCheckResultSchema.safeParse(JSON.parse(text));
     if (!parsed.success) {
       console.error('vision-check parse error', parsed.error.flatten());
-      return NextResponse.json({ error: 'モデル応答のJSON形式が不正です' }, { status: 502 });
+      return jsonError('モデル応答のJSON形式が不正です', { status: 502 });
     }
 
     return NextResponse.json(parsed.data);
   } catch (error) {
     if (error instanceof InputValidationError) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return jsonError(error.message, { status: 400 });
     }
 
     const message = error instanceof Error ? error.message : '判定中にエラーが発生しました';
     console.error('vision-check unexpected error', { message });
-    return NextResponse.json({ error: '判定処理でエラーが発生しました' }, { status: 500 });
+    return jsonError('判定処理でエラーが発生しました');
   }
 }
