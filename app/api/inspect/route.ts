@@ -217,6 +217,13 @@ function getOpenAIErrorCode(error: unknown): string | null {
   return null;
 }
 
+function getOpenAIErrorMessage(error: unknown): string | null {
+  if (error instanceof Error && error.message.length > 0) {
+    return error.message;
+  }
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
@@ -275,8 +282,11 @@ export async function POST(req: NextRequest) {
       const status = getOpenAIErrorStatus(error);
       const requestId = getOpenAIRequestId(error);
       const errorCode = getOpenAIErrorCode(error);
+      const errorMessage = getOpenAIErrorMessage(error);
       if (requestId) {
-        console.error('inspect openai request failed', { requestId, status, errorCode });
+        console.error('inspect openai request failed', { requestId, status, errorCode, errorMessage });
+      } else if (status !== null || errorCode || errorMessage) {
+        console.error('inspect openai request failed', { status, errorCode, errorMessage });
       }
 
       if (status === 400) {
@@ -324,7 +334,9 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    console.error('inspect api error', error);
+    console.error('inspect api error', {
+      message: error instanceof Error ? error.message : 'unknown error'
+    });
     return jsonFailure('画像解析に失敗しました。');
   }
 }
